@@ -382,6 +382,73 @@ nav a:hover::after {
 }
 
 /* Calendar */
+.calendar-events {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+}
+
+.calendar-event {
+    background: var(--secondary-bg);
+    padding: 1rem;
+    border-radius: 8px;
+    border-left: 4px solid var(--accent-blue);
+    display: flex;
+    gap: 1rem;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.calendar-event:hover {
+    transform: translateX(4px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.event-date {
+    min-width: 80px;
+    text-align: center;
+    padding: 0.5rem;
+    background: var(--primary-bg);
+    border-radius: 6px;
+}
+
+.event-details {
+    flex: 1;
+}
+
+.event-type {
+    display: inline-block;
+    padding: 0.25rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+.event-type-raid {
+    background: #e74c3c;
+    color: white;
+}
+
+.event-type-mythic {
+    background: #9b59b6;
+    color: white;
+}
+
+.event-type-pvp {
+    background: #e67e22;
+    color: white;
+}
+
+.event-type-social {
+    background: #2ecc71;
+    color: white;
+}
+
+.event-type-other {
+    background: var(--accent-blue);
+    color: white;
+}
+
 .event {
     background: var(--secondary-bg);
     padding: 1rem;

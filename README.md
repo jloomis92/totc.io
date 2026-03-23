@@ -115,6 +115,47 @@ Modify `styles.css` to change colors, layouts, etc.
 ### Add More Features
 Extend `server.js` to add more API endpoints or integrate additional data sources.
 
+## Caching System
+
+The website implements multi-layer caching to prevent API rate limits and improve performance:
+
+### Server-Side Cache (Backend)
+- **Raid-Helper Events**: Cached for 5 minutes (configurable via `EVENTS_CACHE_DURATION` in `.env`)
+- **Warcraft Logs OAuth tokens**: Cached until expiry
+
+**Cache Management Endpoints:**
+```bash
+# Check cache status
+GET http://localhost:3000/api/cache/status
+
+# Clear server cache manually
+POST http://localhost:3000/api/cache/clear
+```
+
+### Client-Side Cache (Frontend)
+- **Guild Profile (Raider.IO)**: 5 minutes
+- **Character Data (Raider.IO)**: 10 minutes per character
+- **Warcraft Logs Progression**: 5 minutes
+- **Raid-Helper Events**: 3 minutes
+
+**Browser Console Commands:**
+```javascript
+// View cache statistics
+getCacheStats()
+
+// Clear all client-side caches
+clearAllCaches()
+```
+
+### Cache Configuration
+
+Adjust cache durations in `.env`:
+```env
+EVENTS_CACHE_DURATION=5  # Raid-Helper events cache (in minutes)
+```
+
+Frontend cache durations can be modified in `app.js` under the `CACHE_DURATIONS` object.
+
 ## Troubleshooting
 
 **Issue**: Can't connect to backend
@@ -125,6 +166,12 @@ Extend `server.js` to add more API endpoints or integrate additional data source
 
 **Issue**: CORS errors
 - **Solution**: Backend includes CORS middleware, but ensure frontend and backend are on same origin
+
+**Issue**: Hitting API rate limits
+- **Solution**: Check cache configuration and increase cache durations. Use `getCacheStats()` in browser console to verify caches are working
+
+**Issue**: Stale data showing
+- **Solution**: Clear caches using `clearAllCaches()` in browser console or `POST http://localhost:3000/api/cache/clear` for server cache
 
 ## Support
 

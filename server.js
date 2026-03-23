@@ -17,9 +17,19 @@ const WARCRAFT_LOGS_TOKEN_URL = 'https://www.warcraftlogs.com/oauth/token';
 const CLIENT_ID = process.env.WARCRAFT_LOGS_CLIENT_ID;
 const CLIENT_SECRET = process.env.WARCRAFT_LOGS_CLIENT_SECRET;
 
+// Raid-Helper Configuration
+const RAID_HELPER_API = 'https://raid-helper.dev/api/v3';
+const RAID_HELPER_API_KEY = process.env.RAID_HELPER_API_KEY;
+const RAID_HELPER_SERVER_ID = process.env.RAID_HELPER_SERVER_ID;
+
 // Cache for access token
 let accessToken = null;
 let tokenExpiry = null;
+
+// Cache for Raid-Helper events
+let eventsCache = null;
+let eventsCacheExpiry = null;
+const EVENTS_CACHE_DURATION = (process.env.EVENTS_CACHE_DURATION || 5) * 60 * 1000; // Default 5 minutes
 
 // Get OAuth Access Token
 async function getAccessToken() {
@@ -218,6 +228,113 @@ app.post('/api/warcraft-logs/query', async (req, res) => {
         console.error('Error executing query:', error);
         res.status(500).json({ error: 'Query execution failed' });
     }
+});
+
+// Raid-Helper Events Endpoint
+app.get('/api/raid-helper/events', async (req, res) => {
+    try {
+        if (!RAID_HELPER_API_KEY || !RAID_HELPER_SERVER_ID) {
+            return res.status(503).json({ 
+                error: 'Raid-Helper not configured',
+                message: 'Please set RAID_HELPER_API_KEY and RAID_HELPER_SERVER_ID in .env file'
+            });
+        }
+
+        // Check if we have valid cached events
+        if (eventsCache && eventsCacheExpiry && Date.now() < eventsCacheExpiry) {
+            console.log('Returning cached Raid-Helper events');
+            return res.json({ events: eventsCache, cached: true });
+        }
+
+        console.log('Fetching fresh Raid-Helper events from API');
+
+        // Fetch events from Raid-Helper API
+        const response = await fetch(
+            `${RAID_HELPER_API}/servers/${RAID_HELPER_SERVER_ID}/events`,
+            {
+                headers: {
+                    'Authorization': RAID_HELPER_API_KEY,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Raid-Helper API Error: ${response.status} - ${errorText}`);
+        }
+
+        const data = await response.json();
+        
+        // Filter for upcoming events and format them
+        const now = new Date();
+        const upcomingEvents = (data.postedEvents || [])
+            .filter(event => {
+                const eventDate = new Date(event.startTime);
+                return eventDate > now;
+            })
+            .sort((a, b) => new Date(a.startTime) - new Date(b.startTime))
+            .slice(0, 10) // Get more events since some might be past
+            .map(event => {
+                // Count signups
+                const signupCount = event.signups ? 
+                    event.signups.filter(s => s.className !== 'Tentative' && s.className !== 'Absence').length : 
+                    0;
+                
+                return {
+                    id: event.id,
+                    name: event.title || event.description || 'Event',
+                    description: event.description || '',
+                    startTime: event.startTime,
+                    endTime: event.endTime,
+                    location: 'Discord',
+                    userCount: signupCount,
+                    color: event.color || '#5865F2',
+                    channelName: event.channelName || ''
+                };
+            })
+            .slice(0, 5); // Take top 5 after filtering
+
+        // Cache the results
+        eventsCache = upcomingEvents;
+        eventsCacheExpiry = Date.now() + EVENTS_CACHE_DURATION;
+        console.log(`Cached ${upcomingEvents.length} events, expires in ${EVENTS_CACHE_DURATION / 1000 / 60} minutes`);
+
+        res.json({ events: upcomingEvents, cached: false });
+    } catch (error) {
+        console.error('Error fetching Raid-Helper events:', error);
+        res.status(500).json({ 
+            error: 'Failed to fetch Raid-Helper events',
+            message: error.message 
+        });
+    }
+});
+
+// Cache management endpoint - clear events cache
+app.post('/api/cache/clear', (req, res) => {
+    eventsCache = null;
+    eventsCacheExpiry = null;
+    console.log('Events cache cleared');
+    res.json({ 
+        success: true, 
+        message: 'Events cache cleared successfully',
+        timestamp: new Date().toISOString()
+    });
+});
+
+// Cache status endpoint
+app.get('/api/cache/status', (req, res) => {
+    const now = Date.now();
+    const cacheActive = eventsCache && eventsCacheExpiry && now < eventsCacheExpiry;
+    const timeRemaining = cacheActive ? Math.ceil((eventsCacheExpiry - now) / 1000) : 0;
+    
+    res.json({
+        cacheActive,
+        eventsCached: eventsCache ? eventsCache.length : 0,
+        timeRemainingSeconds: timeRemaining,
+        cacheExpiresAt: eventsCacheExpiry ? new Date(eventsCacheExpiry).toISOString() : null,
+        cacheDurationMinutes: EVENTS_CACHE_DURATION / 1000 / 60
+    });
 });
 
 // Health check endpoint

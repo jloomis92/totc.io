@@ -9,6 +9,68 @@ const GUILD_CONFIG = {
 const RAIDER_IO_API = 'https://raider.io/api/v1';
 const BACKEND_API = window.location.origin; // Use same origin for backend API
 
+// Client-side cache objects
+const clientCache = {
+    guildProfile: { data: null, expiry: null },
+    characterData: new Map(), // Map of characterName -> {data, expiry}
+    warcraftLogs: { data: null, expiry: null },
+    raidHelperEvents: { data: null, expiry: null }
+};
+
+// Cache durations (in milliseconds)
+const CACHE_DURATIONS = {
+    guildProfile: 5 * 60 * 1000,      // 5 minutes
+    characterData: 10 * 60 * 1000,    // 10 minutes (longer since M+ scores update less frequently)
+    warcraftLogs: 5 * 60 * 1000,      // 5 minutes
+    raidHelperEvents: 3 * 60 * 1000   // 3 minutes (matches or is shorter than server cache)
+};
+
+// Helper function to check if cache is valid
+function isCacheValid(cacheEntry) {
+    return cacheEntry.data !== null && 
+           cacheEntry.expiry !== null && 
+           Date.now() < cacheEntry.expiry;
+}
+
+// Function to clear all client-side caches
+function clearAllCaches() {
+    clientCache.guildProfile = { data: null, expiry: null };
+    clientCache.characterData.clear();
+    clientCache.warcraftLogs = { data: null, expiry: null };
+    clientCache.raidHelperEvents = { data: null, expiry: null };
+    console.log('All client-side caches cleared');
+}
+
+// Function to get cache statistics
+function getCacheStats() {
+    const stats = {
+        guildProfile: {
+            cached: isCacheValid(clientCache.guildProfile),
+            expiresIn: clientCache.guildProfile.expiry ? 
+                Math.max(0, Math.ceil((clientCache.guildProfile.expiry - Date.now()) / 1000)) : 0
+        },
+        characterData: {
+            cached: clientCache.characterData.size,
+            characters: Array.from(clientCache.characterData.keys())
+        },
+        warcraftLogs: {
+            cached: isCacheValid(clientCache.warcraftLogs),
+            expiresIn: clientCache.warcraftLogs.expiry ? 
+                Math.max(0, Math.ceil((clientCache.warcraftLogs.expiry - Date.now()) / 1000)) : 0
+        },
+        raidHelperEvents: {
+            cached: isCacheValid(clientCache.raidHelperEvents),
+            expiresIn: clientCache.raidHelperEvents.expiry ? 
+                Math.max(0, Math.ceil((clientCache.raidHelperEvents.expiry - Date.now()) / 1000)) : 0
+        }
+    };
+    return stats;
+}
+
+// Make cache functions available globally for debugging
+window.clearAllCaches = clearAllCaches;
+window.getCacheStats = getCacheStats;
+
 // Cache for access token
 let warcraftLogsAccessToken = null;
 let tokenExpiry = null;
@@ -25,6 +87,13 @@ function formatGuildName(name) {
 
 // Fetch Guild Profile from Raider.IO
 async function fetchGuildProfile() {
+    // Check cache first
+    if (isCacheValid(clientCache.guildProfile)) {
+        console.log('Returning cached guild profile');
+        return clientCache.guildProfile.data;
+    }
+
+    console.log('Fetching fresh guild profile from Raider.IO');
     const realm = formatRealmName(GUILD_CONFIG.realm);
     const guildName = formatGuildName(GUILD_CONFIG.name);
     const url = `${RAIDER_IO_API}/guilds/profile?region=${GUILD_CONFIG.region}&realm=${realm}&name=${guildName}&fields=raid_progression,members`;
@@ -35,6 +104,13 @@ async function fetchGuildProfile() {
             throw new Error(`API Error: ${response.status}`);
         }
         const data = await response.json();
+        
+        // Cache the result
+        clientCache.guildProfile = {
+            data: data,
+            expiry: Date.now() + CACHE_DURATIONS.guildProfile
+        };
+        
         return data;
     } catch (error) {
         console.error('Error fetching guild profile:', error);
@@ -44,6 +120,17 @@ async function fetchGuildProfile() {
 
 // Fetch Character M+ Score
 async function fetchCharacterMythicPlus(characterName, realm) {
+    // Create cache key
+    const cacheKey = `${characterName}-${realm}`.toLowerCase();
+    
+    // Check cache first
+    const cachedEntry = clientCache.characterData.get(cacheKey);
+    if (cachedEntry && isCacheValid(cachedEntry)) {
+        console.log(`Returning cached data for ${characterName}`);
+        return cachedEntry.data;
+    }
+
+    console.log(`Fetching fresh data for ${characterName} from Raider.IO`);
     const formattedRealm = formatRealmName(realm);
     const url = `${RAIDER_IO_API}/characters/profile?region=${GUILD_CONFIG.region}&realm=${formattedRealm}&name=${characterName}&fields=mythic_plus_scores_by_season:current,gear`;
     
@@ -53,6 +140,13 @@ async function fetchCharacterMythicPlus(characterName, realm) {
             return null;
         }
         const data = await response.json();
+        
+        // Cache the result
+        clientCache.characterData.set(cacheKey, {
+            data: data,
+            expiry: Date.now() + CACHE_DURATIONS.characterData
+        });
+        
         return data;
     } catch (error) {
         console.error(`Error fetching M+ data for ${characterName}:`, error);
@@ -110,6 +204,13 @@ function updateStatsWithRaidData(raidData) {
 
 // Fetch guild reports and raid progression from Warcraft Logs (via backend)
 async function fetchWarcraftLogsGuildProgression() {
+    // Check cache first
+    if (isCacheValid(clientCache.warcraftLogs)) {
+        console.log('Returning cached Warcraft Logs progression');
+        return clientCache.warcraftLogs.data;
+    }
+
+    console.log('Fetching fresh Warcraft Logs progression from backend');
     try {
         const response = await fetch(`${BACKEND_API}/api/warcraft-logs/guild-progression`, {
             method: 'POST',
@@ -128,6 +229,13 @@ async function fetchWarcraftLogsGuildProgression() {
         }
         
         const data = await response.json();
+        
+        // Cache the result
+        clientCache.warcraftLogs = {
+            data: data,
+            expiry: Date.now() + CACHE_DURATIONS.warcraftLogs
+        };
+        
         return data;
     } catch (error) {
         console.error('Error fetching guild progression from backend:', error);
@@ -462,6 +570,113 @@ async function populateMythicPlusLeaderboard(members) {
     }
 }
 
+// Fetch Discord Events
+async function fetchDiscordEvents() {
+    // Check cache first
+    if (isCacheValid(clientCache.raidHelperEvents)) {
+        console.log('Returning cached Raid-Helper events');
+        return clientCache.raidHelperEvents.data;
+    }
+
+    console.log('Fetching fresh Raid-Helper events from backend');
+    try {
+        const response = await fetch(`${window.location.origin}/api/raid-helper/events`);
+        
+        if (!response.ok) {
+            if (response.status === 503) {
+                console.log('Raid-Helper not configured yet');
+                return null;
+            }
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        // Cache the result (note: backend also has its own cache)
+        clientCache.raidHelperEvents = {
+            data: data.events,
+            expiry: Date.now() + CACHE_DURATIONS.raidHelperEvents
+        };
+        
+        return data.events;
+    } catch (error) {
+        console.error('Error fetching Raid-Helper events:', error);
+        return null;
+    }
+}
+
+// Populate Calendar Events
+async function populateCalendarEvents() {
+    const calendarList = document.querySelector('.calendar-events');
+    if (!calendarList) return;
+    
+    // Show loading state
+    calendarList.innerHTML = '<div style="padding: 1rem; color: var(--text-secondary);">Loading events...</div>';
+    
+    const events = await fetchDiscordEvents();
+    
+    if (!events || events.length === 0) {
+        calendarList.innerHTML = '<div style="padding: 1rem; color: var(--text-secondary);">No upcoming events scheduled</div>';
+        return;
+    }
+    
+    // Clear and populate with Discord events
+    calendarList.innerHTML = '';
+    
+    events.forEach(event => {
+        const eventDiv = document.createElement('div');
+        eventDiv.className = 'calendar-event';
+        
+        const startDate = new Date(event.startTime);
+        const dateStr = startDate.toLocaleDateString('en-US', { 
+            weekday: 'short', 
+            month: 'short', 
+            day: 'numeric' 
+        });
+        const timeStr = startDate.toLocaleTimeString('en-US', { 
+            hour: 'numeric', 
+            minute: '2-digit',
+            hour12: true 
+        });
+        
+        // Determine event type badge
+        let eventType = 'Event';
+        let badgeClass = 'event-type-other';
+        const nameLower = event.name.toLowerCase();
+        
+        if (nameLower.includes('raid')) {
+            eventType = 'Raid';
+            badgeClass = 'event-type-raid';
+        } else if (nameLower.includes('mythic') || nameLower.includes('m+')) {
+            eventType = 'M+';
+            badgeClass = 'event-type-mythic';
+        } else if (nameLower.includes('pvp') || nameLower.includes('rated')) {
+            eventType = 'PvP';
+            badgeClass = 'event-type-pvp';
+        } else if (nameLower.includes('social') || nameLower.includes('hangout')) {
+            eventType = 'Social';
+            badgeClass = 'event-type-social';
+        }
+        
+        eventDiv.innerHTML = `
+            <div class="event-date">
+                <div style="font-size: 0.9rem; font-weight: bold;">${dateStr}</div>
+                <div style="font-size: 0.85rem; color: var(--text-secondary);">${timeStr}</div>
+            </div>
+            <div class="event-details">
+                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                    <span class="event-type ${badgeClass}">${eventType}</span>
+                    <span style="font-weight: bold;">${event.name}</span>
+                </div>
+                ${event.description ? `<div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.25rem;">${event.description}</div>` : ''}
+                ${event.userCount > 0 ? `<div style="font-size: 0.85rem; color: var(--accent-gold); margin-top: 0.25rem;">👥 ${event.userCount} interested</div>` : ''}
+            </div>
+        `;
+        
+        calendarList.appendChild(eventDiv);
+    });
+}
+
 // Initialize the application
 async function init() {
     console.log('Fetching guild data for:', GUILD_CONFIG);
@@ -496,6 +711,9 @@ async function init() {
             console.error('Failed to load guild data. Check console for errors.');
             alert('Failed to load guild data. Please check the console for details.');
         }
+        
+        // Load Discord events
+        await populateCalendarEvents();
     } catch (error) {
         console.error('Error initializing app:', error);
         alert('Error loading guild data: ' + error.message);
