@@ -248,13 +248,13 @@ app.get('/api/raid-helper/events', async (req, res) => {
 
         console.log('Fetching fresh Raid-Helper events from API');
 
-        // Fetch events from Raid-Helper API
+        // Fetch events from Raid-Helper API using Server endpoint
+        // Note: Requires Server API key (not personal user key)
         const response = await fetch(
             `${RAID_HELPER_API}/servers/${RAID_HELPER_SERVER_ID}/events`,
             {
                 headers: {
-                    'Authorization': RAID_HELPER_API_KEY,
-                    'Content-Type': 'application/json'
+                    'Authorization': RAID_HELPER_API_KEY
                 }
             }
         );
@@ -265,35 +265,37 @@ app.get('/api/raid-helper/events', async (req, res) => {
         }
 
         const data = await response.json();
+        console.log(`Received ${data.length} total events from Raid-Helper`);
         
         // Filter for upcoming events and format them
-        const now = new Date();
-        const upcomingEvents = (data.postedEvents || [])
+        const now = Date.now() / 1000; // Convert to Unix timestamp in seconds
+        const upcomingEvents = data
             .filter(event => {
-                const eventDate = new Date(event.startTime);
-                return eventDate > now;
+                // startTime is in Unix timestamp (seconds)
+                return event.startTime > now;
             })
-            .sort((a, b) => new Date(a.startTime) - new Date(b.startTime))
-            .slice(0, 10) // Get more events since some might be past
+            .sort((a, b) => a.startTime - b.startTime)
+            .slice(0, 5) // Get top 5 upcoming events
             .map(event => {
-                // Count signups
-                const signupCount = event.signups ? 
-                    event.signups.filter(s => s.className !== 'Tentative' && s.className !== 'Absence').length : 
+                // Count signups (note: signUps with capital U)
+                const signupCount = event.signUps ? 
+                    event.signUps.filter(s => s.className !== 'Tentative' && s.className !== 'Absence').length : 
                     0;
                 
                 return {
                     id: event.id,
                     name: event.title || event.description || 'Event',
                     description: event.description || '',
-                    startTime: event.startTime,
-                    endTime: event.endTime,
+                    startTime: new Date(event.startTime * 1000).toISOString(), // Convert to ISO string
+                    endTime: event.endTime ? new Date(event.endTime * 1000).toISOString() : null,
                     location: 'Discord',
                     userCount: signupCount,
-                    color: event.color || '#5865F2',
-                    channelName: event.channelName || ''
+                    color: event.color || '88,101,242',
+                    channelName: event.channelId || ''
                 };
-            })
-            .slice(0, 5); // Take top 5 after filtering
+            });
+        
+        console.log(`Found ${upcomingEvents.length} upcoming events`);
 
         // Cache the results
         eventsCache = upcomingEvents;

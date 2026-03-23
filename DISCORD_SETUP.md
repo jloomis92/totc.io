@@ -2,14 +2,19 @@
 
 This guide will help you set up Raid-Helper integration to display your guild's scheduled events on the website.
 
-## Step 1: Get Your Raid-Helper API Key
+## Step 1: Get Your Raid-Helper Server API Key
+
+⚠️ **IMPORTANT**: You need a **Server API Key**, not a personal user key!
 
 1. Go to [Raid-Helper Dashboard](https://raid-helper.dev/dashboard)
 2. Log in with your Discord account
 3. Select your server from the dropdown
 4. Click on "API" in the left sidebar
-5. Click "Generate API Key" (or copy your existing key)
-6. Copy the API key
+5. Make sure you're generating a **Server API Key** (not a user/personal key)
+   - Server keys have access to all server events
+   - Personal keys only show events you're signed up to
+6. Click "Generate API Key" or "Generate Server API Key"
+7. Copy the API key
    - **Important**: Keep this key secret! Never share it publicly
 
 ## Step 2: Get Your Discord Server ID
@@ -24,7 +29,7 @@ This guide will help you set up Raid-Helper integration to display your guild's 
 Add these two lines to your `.env` file:
 
 ```env
-RAID_HELPER_API_KEY=your_api_key_here
+RAID_HELPER_API_KEY=your_server_api_key_here
 RAID_HELPER_SERVER_ID=your_server_id_here
 ```
 
